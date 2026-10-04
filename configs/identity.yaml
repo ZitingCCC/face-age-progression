@@ -1,0 +1,6 @@
+# Planned M2 selection parameters; no scoring implemented yet.
+model: null
+candidate_count: 4
+lambda_id: 1.0
+lambda_age: 1.0
+age_error_normalization: 100.0
