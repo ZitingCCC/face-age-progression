@@ -1,6 +1,7 @@
 """CPU-only fakes: no generated faces, real images, upstream imports or downloads."""
 import csv
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -209,6 +210,8 @@ def test_subprocess_handoff_isolated_and_offline(tmp_path, monkeypatch):
         assert isinstance(args, list) and not kwargs.get('shell', False)
         assert args[0] == sys.executable
         assert kwargs['cwd'] == settings['external_repository']
+        assert kwargs['env']['PATH'].startswith(str(Path(settings['python']).absolute().parent) + os.pathsep)
+        assert kwargs['env']['PATH'].endswith(os.environ.get('PATH', ''))
         assert kwargs['env']['HF_HUB_OFFLINE'] == '1'
         assert kwargs['env']['TRANSFORMERS_OFFLINE'] == '1'
         assert kwargs['env']['TORCH_EXTENSIONS_DIR'].startswith(settings['cache'])
@@ -234,7 +237,8 @@ def test_worker_killed_has_clear_parent_failure(tmp_path, monkeypatch):
         feasibility.subprocess_backend(dict(model='sam', config=settings))
 
 
-def test_external_revision_and_weights_check(tmp_path):
+def test_external_revision_and_weights_check(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.models.feasibility.check_sam_runtime", lambda *_: {"test_only": True})
     repo = tmp_path / 'external'
     repo.mkdir()
     for relative in ('models/psp.py', 'datasets/augmentations.py', 'scripts/align_all_parallel.py'):

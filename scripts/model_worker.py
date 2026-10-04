@@ -14,6 +14,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 from src.models.feasibility import SmokeMetadata, check_external
 from src.utils.metadata import write_metadata
+from src.models.sam_runtime import check_ninja
 
 
 def sam(request, torch):
@@ -85,9 +86,11 @@ def main():
     started = None
     cuda_measured = False
     try:
-        external = check_external(request['model'], config)
+        external = check_external(request['model'], config, runtime=False)
         result['revision'] = external['revision']
         result['upstream'] = {k: config[k] for k in ('upstream_repository', 'revision', 'upstream_revision', 'implementation_repository') if k in config}
+        if request['model'] == 'sam':
+            result['ninja'] = check_ninja()
         sys.path.insert(0, str(Path(config['external_repository']).resolve()))
         for package in ('torch', 'torchvision', 'diffusers', 'transformers', 'accelerate', 'numpy', 'Pillow', 'dlib'):
             try:

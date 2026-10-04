@@ -11,7 +11,7 @@ from .fading_adapter import FADINGAdapter
 def main(model):
     parser = argparse.ArgumentParser(description=f'One-image {model} feasibility only; run canonical setup first')
     parser.add_argument('--config', type=Path, default=Path(__file__).resolve().parents[2] / 'configs/models.yaml')
-    parser.add_argument('--check', action='store_true', help='Local code/checkpoint/revision check; loads no GPU model')
+    parser.add_argument('--check', action='store_true', help='Local assets/revision check and SAM Ninja runtime probe; loads no model')
     parser.add_argument('--source', type=Path)
     parser.add_argument('--source-age', type=int)
     parser.add_argument('--target-age', type=int)
