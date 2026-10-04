@@ -1,0 +1,16 @@
+# Metadata only. Raw/output roots are supplied by CLI or notebook, never downloaded.
+dataset:
+  name: fgnet
+split:
+  train: 0.7
+  val: 0.15
+  test: 0.15
+  seed: 42
+pairs:
+  min_source_age: null
+  max_source_age: null
+  min_target_age: null
+  max_target_age: null
+  min_age_gap: 1
+  max_age_gap: null
+  max_pairs_per_subject: null

@@ -2,7 +2,7 @@
 
 AI6132 research project investigating plausible child-to-adult face age progression while preserving identity-related facial characteristics. Generated images must never be described as predictions of a person's actual future appearance.
 
-Task 01 provides reusable infrastructure only. No face-aging model, dataset pipeline, candidate ranking, evaluation pipeline, or experimental results have been implemented.
+Tasks 01–03 provide reusable infrastructure, canonical Colab setup, and FG-NET metadata preparation. Models, candidate ranking, experimental evaluation, and experimental results remain unimplemented.
 
 The planned architecture consists of an existing GAN baseline (M0), pretrained diffusion age progression (M1), and identity-aware candidate selection (M2). Future evaluation will measure target-age accuracy, identity similarity, image quality, and inference time. Dataset splits must separate subject IDs.
 
@@ -10,14 +10,14 @@ Codex Cloud is the CPU development and testing environment. Google Colab Free is
 
 ```text
 configs/                 YAML experiment, diffusion, and identity settings
-notebooks/               Colab setup notebook and four workflow placeholders
+notebooks/               Colab setup/dataset notebooks and three workflow placeholders
 src/
-  data/                  Reserved dataset package
+  data/                  FG-NET metadata, subject splits, longitudinal pairs
   models/                Reserved model package
   evaluation/            Reserved evaluation package
   utils/                 Configuration, seeds, devices, paths, metadata, resume
-scripts/                 Reserved preprocessing/inference/evaluation entry points
-tests/                   CPU-only infrastructure tests
+scripts/                 Dataset CLI and reserved inference/evaluation entry points
+tests/                   CPU-only infrastructure and synthetic dataset tests
 outputs/
   metrics/               Small CSV/JSON metrics may be committed
   figures/               Final figures may be committed
@@ -75,3 +75,42 @@ Datasets, checkpoints, Hugging Face caches, generated images, Drive contents, en
 The checkout stays at `/content/face-age-progression`; large persistent files and future Hugging Face caches use Drive. Rerunning preserves persistent files and refuses to update a checkout with local changes or a divergent branch. Save local edits before updating. Dependency conflicts stop installation rather than replace Colab's PyTorch builds. Restart the runtime if pip requests it, then rerun setup.
 
 This notebook prepares infrastructure only and downloads no datasets or pretrained models. Its temporary metadata is a setup check, not an experimental result. CPU tests and static notebook validation do not verify actual Colab execution, Drive authorization/persistence, or GPU behavior; check those manually in Colab.
+
+## FG-NET Dataset Preparation
+
+FG-NET is not stored in GitHub. Obtain it separately according to applicable access/license terms and manually extract the real data into Google Drive:
+
+```text
+MyDrive/AI6132/data/fgnet/
+    raw/
+    processed/
+```
+
+Run `notebooks/01_setup.ipynb` first, then `notebooks/02_dataset.ipynb`. Set the notebook's configurable `RAW_ROOT` to your extraction root if its layout differs. Missing data produces placement instructions and skips processing; nothing is downloaded automatically. Metadata preparation is CPU-only, leaves images on Drive, and creates no full-dataset copy in `/content`.
+
+**Filename assumption (not verified against real FG-NET):** the full filename stem must match exactly three ASCII subject digits + literal `A` (case-insensitive) + exactly two ASCII age digits + an optional single ASCII letter. Extensions `.jpg`, `.jpeg`, `.png` are case-insensitive. Examples: `001A05.jpg`, `001A05a.JPG`, `002a00.png`. The optional letter distinguishes same-age images and does not alter identity or age. Subject IDs retain three-digit leading zeros; ages are non-negative integers. Verify this convention against the actual files; adjust the isolated `FILENAME_PATTERN` in `src/data/fgnet.py` if necessary. Malformed supported images fail clearly instead of being skipped or guessed. Discovery is recursive and validates metadata, not decoded pixels, face content, authenticity, or dataset completeness.
+
+The reusable modules are `src/data/fgnet.py` (discovery, parsing, metadata validation, summary, output/orchestration), `splits.py` (subject assignment and leakage validation), and `pairs.py` (longitudinal pairing, filters, and pair integrity). The notebook and CLI call these functions. No GPU dependency is imported by the data pipeline.
+
+Outputs under `processed/`:
+
+- `metadata.csv`: `subject_id, age, image_path, split`, ordered by subject ID, age, image path. Paths are relative POSIX strings under the configured raw root; resolve them as `raw_root / image_path`. Preserve subject IDs as text when reading CSV and convert ages to integers.
+- `pairs.csv`: `subject_id, source_image, source_age, target_image, target_age, age_gap, age_gap_group, split`, ordered by subject, source age/path, target age/path. Empty pair tables still have headers.
+- `preparation.json`: raw-root location, preparation configuration, and computed dataset summary. These are data counts, never model metrics or experimental results.
+
+Subject-level splitting prevents identity leakage across splits. Sorted unique subject IDs are shuffled using a local `random.Random(seed)` (default `42`, integer in `[0, 2**32)`). Default subject ratios are train/val/test = 0.70/0.15/0.15, configurable in `configs/dataset.yaml`. Largest-remainder rounding floors each subject count, then allocates the remainder by descending fractional part, ties in train/val/test order. Small datasets can have empty splits. All ages of an identity stay within the same split; images are never independently randomized. The reusable validator explicitly fails on overlap between every pair of splits.
+
+Longitudinal pairing is a separate within-subject operation inside each assigned split. By default it generates every valid image combination with `target_age > source_age` and `age_gap = target_age - source_age`. For one subject at ages 5, 10, 18, 30 this gives six pairs, all within that subject's single split. Multiple images at the same age can pair with older images but never with each other. Optional inclusive source/target age bounds and gap bounds restrict pairs; the default minimum gap is 1. The optional `max_pairs_per_subject` keeps the first K valid pairs in the documented stable order, with no randomness. Without a cap the number of pairs can grow quadratically per subject. Age-gap group labels are `0-5` for gaps 1–5, `6-10` for 6–10, and `11+` for 11 or more; gap 0 is invalid. No performance metrics are computed.
+
+Local CLI (no Drive or CUDA required):
+
+```bash
+python scripts/prepare_fgnet.py --help
+python scripts/prepare_fgnet.py --raw-root /path/to/fgnet/raw --output-root /path/to/fgnet/processed
+```
+
+The CLI reuses Task 01's YAML loader. `--config` selects dataset YAML; seed, ratios, age constraints, pair gap, and pair cap can be overridden with CLI flags. Randomness is local rather than using Task 01's global PyTorch seed helper, keeping dataset work free of GPU initialization. CLI configuration records effective defaults/overrides. The raw and output roots must be separate non-overlapping directories.
+
+Reruns refuse existing named outputs by default. Inspect them before using `--overwrite` or notebook `OVERWRITE = True`; this explicitly replaces only `metadata.csv`, `pairs.csv`, and `preparation.json`, preserving other output names and all raw images. Non-regular output destinations and symlinks are rejected. All tables are validated and serialized in staging before writing; individual replacements are atomic where the filesystem supports rename, but the bundle is not a single transaction. An interruption can leave a partial bundle; inspect and rerun with explicit overwrite. Use one writer per output root. Actual mounted Drive persistence and rename behavior require Colab validation.
+
+Automated tests use only temporary synthetic filename/content placeholders, with no downloads, real FG-NET, or GPU. Real filename compatibility, raw-data integrity/completeness, Google Drive behavior, and top-to-bottom execution in real Colab remain to be verified for Task 03. Raw FG-NET, processed datasets, archives, model weights, caches, and generated images must never be committed to GitHub.

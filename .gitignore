@@ -259,3 +259,13 @@ gdrive/
 google_drive/
 venv*/
 .venv*/
+
+# Dataset archives and local Colab artifacts (synthetic fixtures stay source-controlled)
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+/content/
+colab-artifacts/
