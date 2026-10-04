@@ -9,6 +9,7 @@ import tempfile
 
 from src.utils.metadata import ExperimentMetadata, write_metadata, read_metadata
 from src.utils.resume import is_completed
+from .sam_runtime import check_sam_runtime
 
 
 @dataclass
@@ -59,8 +60,8 @@ def select_source(metadata_path, raw_root, target_age=30, max_source_age=17):
                 target_age=target_age)
 
 
-def check_external(model, config):
-    """Check local assets and exact clean revision without loading models."""
+def check_external(model, config, *, runtime=True):
+    """Check local assets/revision and SAM Ninja runtime without loading models."""
     if model not in ('sam', 'fading'):
         raise ValueError('Unknown feasibility model')
     repo = Path(config['external_repository']).resolve()
@@ -95,7 +96,27 @@ def check_external(model, config):
                            check=True, capture_output=True, text=True).stdout
     if dirty:
         raise ValueError('External tracked code is modified; record/review a new pinned revision')
-    return {'revision': revision, 'repository': str(repo), 'checkpoint': str(checkpoint)}
+    result = {'revision': revision, 'repository': str(repo), 'checkpoint': str(checkpoint)}
+    if model == 'sam' and runtime:
+        result['ninja'] = check_sam_runtime(config, worker_environment(model, config))
+    return result
+
+
+def worker_environment(model, config):
+    """Copy inherited CUDA/Colab settings; only SAM prepends its interpreter bin."""
+    cache = Path(config['cache']).resolve()
+    if cache.is_relative_to(PROJECT_ROOT):
+        raise ValueError('Model caches must remain outside the project checkout')
+    env = os.environ.copy()
+    if model == 'sam':
+        # Do not resolve the executable symlink: that would discard the venv bin.
+        isolated_bin = str(Path(config['python']).absolute().parent)
+        previous_path = env.get('PATH', '')
+        env['PATH'] = isolated_bin + (os.pathsep + previous_path if previous_path else '')
+    env.update(HF_HOME=str(cache / 'huggingface'), TORCH_HOME=str(cache / 'torch'),
+               TORCH_EXTENSIONS_DIR=str(cache / 'extensions'), HF_HUB_OFFLINE='1',
+               TRANSFORMERS_OFFLINE='1', PYTHONDONTWRITEBYTECODE='1')
+    return env
 
 
 def subprocess_backend(request):
@@ -110,10 +131,7 @@ def subprocess_backend(request):
         request_path = Path(temporary) / 'request.json'
         result_path = Path(temporary) / 'result.json'
         request_path.write_text(json.dumps(request), encoding='utf-8')
-        env = os.environ.copy()
-        env.update(HF_HOME=str(cache / 'huggingface'), TORCH_HOME=str(cache / 'torch'),
-                   TORCH_EXTENSIONS_DIR=str(cache / 'extensions'), HF_HUB_OFFLINE='1',
-                   TRANSFORMERS_OFFLINE='1', PYTHONDONTWRITEBYTECODE='1')
+        env = worker_environment(request['model'], config)
         completed = subprocess.run([config['python'], str(PROJECT_ROOT / 'scripts/model_worker.py'),
                                     str(request_path), str(result_path)],
                                    cwd=config['external_repository'], env=env, check=False)

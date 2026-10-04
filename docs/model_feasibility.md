@@ -67,7 +67,8 @@ git clone https://github.com/yuval-alaluf/SAM.git /content/SAM
 git -C /content/SAM checkout c1895aef275e702fba7560284dc16df60d65210e
 python -m venv --system-site-packages /content/sam-env
 python -c "from importlib.metadata import version; from pathlib import Path; Path('/content/sam-constraints.txt').write_text('torch=='+version('torch')+'\ntorchvision=='+version('torchvision')+'\n')"
-/content/sam-env/bin/python -m pip install -c /content/sam-constraints.txt 'numpy<2' scipy matplotlib tqdm ninja dlib Pillow PyYAML
+/content/sam-env/bin/python -m pip install -c /content/sam-constraints.txt 'numpy<2' scipy matplotlib tqdm dlib Pillow PyYAML
+/content/sam-env/bin/python -m pip install --ignore-installed --no-deps ninja
 /content/sam-env/bin/python -m pip check
 ```
 
@@ -77,6 +78,86 @@ checkpoint loading explicitly sets `weights_only=False`, restoring `torch.load`
 after initialization. This allows pickle execution: verify origin before setting
 `trusted_checkpoint=True` or passing `--trust-sam-checkpoint`. The bridges do not
 establish CUDA extension compatibility and never patch canonical files.
+
+### SAM Ninja failure: observed Colab evidence and scoped fix
+
+The researcher reported this **failed** real Colab smoke attempt:
+
+- Tesla T4, `15637086208` total VRAM bytes (14.56 GiB).
+- `/content/sam-env`, Python 3.12.3, torch `2.5.1+cu121`,
+  torchvision `0.20.1+cu121`, CUDA build 12.1.
+- CUDA available, one device, CUDA tensor allocation succeeded; the SAM worker
+  printed the same GPU name/memory and selected `cuda:0`.
+- The original `python scripts/smoke_sam.py --check` passed assets/revision checks.
+- Generation failed with `RuntimeError: RuntimeError: Ninja is required to load C++ extensions`,
+  return code 1, reported wall time 4.69 seconds, and **no output image**.
+  This is failed-attempt evidence, not a successful inference benchmark.
+
+At the pinned SAM revision, our worker's `from models.psp import pSp` imports
+`models/stylegan2/model.py`, then `models/stylegan2/op/__init__.py`. That module
+imports `fused_act.py` first and `upfirdn2d.py` second. Both call
+`torch.utils.cpp_extension.load()` at module scope, for the `fused` and
+`upfirdn2d` C++/CUDA extensions respectively. The first extension uses
+`fused_bias_act.cpp` and `fused_bias_act_kernel.cu`. This happens **before** our
+worker reaches `torch.load(checkpoint)`.
+
+[PyTorch 2.5.1's loader](https://github.com/pytorch/pytorch/blob/v2.5.1/torch/utils/cpp_extension.py)
+checks `is_ninja_available()` by executing `['ninja', '--version']` through PATH;
+any execution error returns false. `verify_ninja_availability()` then raises the
+exact reported message. It does not test whether the Python package is importable.
+A local pip installation normally supplies the environment's `bin/ninja`:
+[older Ninja wheels](https://github.com/scikit-build/ninja-python-distributions/blob/1.11.1/setup.py)
+register `ninja=ninja:ninja` as a console script, while
+[current builds](https://github.com/scikit-build/ninja-python-distributions/blob/master/CMakeLists.txt)
+install the executable to the wheel's scripts directory. With
+`--system-site-packages`, a generic `pip install ninja` can also be satisfied by
+an inherited installation, without creating a local script. The explicit
+`--ignore-installed --no-deps ninja` setup command above ensures a local
+installation without uninstalling inherited packages or replacing PyTorch.
+
+**Confirmed project-side cause:** the original launcher copied `os.environ`
+and selected `/content/sam-env/bin/python`, but never prepended
+`/content/sam-env/bin` to PATH. Selecting an interpreter by absolute path does
+not activate its venv or change PATH. Thus its installed Ninja can be invisible
+to PyTorch's subprocess. CPU reproduction using a temporary venv, a fake Ninja
+executable and the actual PyTorch availability function returns false under the
+old inherited PATH and true with the isolated bin prepended. The supplied Colab
+log has no PATH/executable trace, so it cannot rule out an additional missing or
+broken Ninja installation; the new preflight explicitly diagnoses those cases.
+
+The fix copies the inherited environment and prepends the configured interpreter's
+**lexical** bin directory for SAM only. It deliberately does not resolve Python's
+symlink into the canonical interpreter directory. CUDA/Colab variables and the
+existing PATH remain intact; FADING's PATH is unchanged. No global environment,
+canonical notebook/requirements, model assets or external SAM code are modified.
+
+`smoke_sam.py --check` now checks assets, predictor, executable Python, pinned clean
+revision, executable Ninja/version, and PyTorch's own Ninja detection under the
+same environment as generation. It prints selected Python/prefix, Ninja path,
+Ninja version, torch version and detection status. The check imports PyTorch's
+extension utility but imports no SAM model/ops, loads no checkpoint, compiles
+nothing, downloads nothing, and requires no source image or GPU. The worker also
+checks Ninja in its own process before SAM imports, checkpoint loading or GPU
+inference, including when directly invoked. Passing this check establishes Ninja
+availability only; compiler/nvcc/ABI compatibility and generation remain pending.
+
+After merge, rerun in the existing GPU Colab session:
+
+1. Save local edits, then update the project checkout to merged `main` with
+   `git -C /content/face-age-progression switch main` followed by
+   `git -C /content/face-age-progression pull --ff-only origin main`.
+   Keep the pinned external SAM checkout and existing Drive assets unchanged.
+2. From the project root run `python scripts/smoke_sam.py --check`.
+   If it reports a missing/broken Ninja, run only
+   `/content/sam-env/bin/python -m pip install --ignore-installed --no-deps ninja`
+   and rerun the check. Confirm Ninja is executable and PyTorch detection is true.
+3. Rerun the SAM check and SAM one-image cells in `03_model_feasibility.ipynb`
+   with the same selected source/age/target, `RUN_SMOKE=True`, and verified
+   `TRUST_SAM_CHECKPOINT=True`. FADING need not be rerun. A failed record with no
+   PNG remains retryable; do not delete checkpoints or caches to fix PATH.
+4. Inspect the actual status/output and new failure details on Drive. Stop on a
+   new compiler/CUDA/checkpoint error and record it; do not downgrade canonical
+   PyTorch. **Successful SAM GPU generation remains pending until this rerun.**
 
 FADING: use a **separate Python 3.10 interpreter and venv**, with no system site
 packages. Obtain Python 3.10 through a reviewed environment manager (for example
