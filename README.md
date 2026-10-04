@@ -2,7 +2,7 @@
 
 AI6132 research project investigating plausible child-to-adult face age progression while preserving identity-related facial characteristics. Generated images must never be described as predictions of a person's actual future appearance.
 
-Tasks 01–03 provide reusable infrastructure, canonical Colab setup, and FG-NET metadata preparation. Models, candidate ranking, experimental evaluation, and experimental results remain unimplemented.
+Tasks 01–03 provide reusable infrastructure, canonical Colab setup, and FG-NET metadata preparation. Task 04A adds candidate model feasibility wrappers; candidate ranking, experimental evaluation, and experimental results remain unimplemented.
 
 The planned architecture consists of an existing GAN baseline (M0), pretrained diffusion age progression (M1), and identity-aware candidate selection (M2). Future evaluation will measure target-age accuracy, identity similarity, image quality, and inference time. Dataset splits must separate subject IDs.
 
@@ -10,10 +10,10 @@ Codex Cloud is the CPU development and testing environment. Google Colab Free is
 
 ```text
 configs/                 YAML experiment, diffusion, and identity settings
-notebooks/               Colab setup/dataset notebooks and three workflow placeholders
+notebooks/               Colab setup/dataset/feasibility notebooks and workflow placeholders
 src/
   data/                  FG-NET metadata, subject splits, longitudinal pairs
-  models/                Reserved model package
+  models/                Thin SAM/FADING feasibility adapters
   evaluation/            Reserved evaluation package
   utils/                 Configuration, seeds, devices, paths, metadata, resume
 scripts/                 Dataset CLI and reserved inference/evaluation entry points
@@ -114,3 +114,30 @@ The CLI reuses Task 01's YAML loader. `--config` selects dataset YAML; seed, rat
 Reruns refuse existing named outputs by default. Inspect them before using `--overwrite` or notebook `OVERWRITE = True`; this explicitly replaces only `metadata.csv`, `pairs.csv`, and `preparation.json`, preserving other output names and all raw images. Non-regular output destinations and symlinks are rejected. All tables are validated and serialized in staging before writing; individual replacements are atomic where the filesystem supports rename, but the bundle is not a single transaction. An interruption can leave a partial bundle; inspect and rerun with explicit overwrite. Use one writer per output root. Actual mounted Drive persistence and rename behavior require Colab validation.
 
 Automated tests use only temporary synthetic filename/content placeholders, with no downloads, real FG-NET, or GPU. Real filename compatibility, raw-data integrity/completeness, Google Drive behavior, and top-to-bottom execution in real Colab remain to be verified for Task 03. Raw FG-NET, processed datasets, archives, model weights, caches, and generated images must never be committed to GitHub.
+
+
+## Task 04A: SAM and FADING feasibility
+
+[SAM](https://github.com/yuval-alaluf/SAM) is the candidate M0 GAN baseline;
+[FADING](https://github.com/MunchkinChen/FADING) is the candidate M1 diffusion method.
+Neither is validated or accepted until a real Colab GPU smoke test succeeds.
+CPU fake tests verify adapters only. This is not an experiment and outputs are
+not research results or predictions of a person's true future appearance.
+
+Run `notebooks/01_setup.ipynb` first, prepare the external dependencies/checkpoints
+using the [exact setup and GPU validation procedure](docs/model_feasibility.md),
+then run `notebooks/03_model_feasibility.ipynb`. It deterministically selects one
+real FG-NET child image from Drive metadata, prints subject/source/target ages,
+and requests one saved output per candidate. Smoke JSON records include status,
+failures, actual measured worker runtime/peak CUDA memory, paths and versions.
+
+External repositories, checkpoints, caches and generated images stay outside Git
+under the documented `/content` and persistent Drive paths. Verify upstream code,
+checkpoint and dataset licenses/provenance before experimental use. SAM uses an
+isolated venv retaining canonical torch/torchvision; FADING uses an isolated
+Python 3.10 legacy/compatibility environment. **Never destructively downgrade the
+Task 02 canonical environment.** Modern diffusers/PyTorch compatibility and T4
+memory feasibility are untested. SAM computes at 1024px internally (256px saved);
+FADING uses a two-prompt internal batch (one source/one saved 512px output). These
+internal exceptions are explicitly configured. FP32 is retained until FP16 is
+verified safe. No M2 selection or evaluation is implemented.

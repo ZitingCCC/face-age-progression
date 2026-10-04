@@ -1,0 +1,42 @@
+# Candidates only; no model has passed real Colab GPU feasibility yet.
+smoke:
+  target_age: 30
+  max_source_age: 17
+  seed: 0
+  output_root: /content/drive/MyDrive/AI6132/generated/smoke
+sam:
+  name: SAM
+  method: M0-candidate
+  upstream_repository: https://github.com/yuval-alaluf/SAM
+  revision: c1895aef275e702fba7560284dc16df60d65210e
+  external_repository: /content/SAM
+  python: /content/sam-env/bin/python
+  checkpoint: /content/drive/MyDrive/AI6132/models/sam/sam_ffhq_aging.pt
+  landmark_predictor: /content/drive/MyDrive/AI6132/models/sam/shape_predictor_68_face_landmarks.dat
+  checkpoint_url: https://drive.google.com/file/d/1XyumF6_fdAxFmxpFcmPf-q84LU_22EMC/view
+  cache: /content/drive/MyDrive/AI6132/cache/sam
+  resolution: 256
+  native_resolution: 1024
+  device: cuda:0
+  precision: fp32
+  allow_upstream_internal_sizes: true
+  trusted_checkpoint: false
+  environment_notes: Isolated venv retaining canonical torch/torchvision; CUDA extension compatibility untested. Native decoder is 1024 even with 256px saved output.
+fading:
+  name: FADING
+  method: M1-candidate
+  upstream_repository: https://github.com/MunchkinChen/FADING
+  upstream_revision: 14fefbf7edbf5b1d3f867bd4720a61bfc1bdf2c0
+  implementation_repository: https://github.com/gh-BumsooKim/FADING_stable
+  revision: b1fc2e84fc02a2e048593766803627e219bfd017
+  external_repository: /content/FADING_stable
+  python: /content/fading-env/bin/python
+  checkpoint: /content/drive/MyDrive/AI6132/models/fading/finetune_double_prompt_150_random
+  checkpoint_url: https://drive.google.com/file/d/1galwrcHq1HoZNfOI4jdJJqVs5ehB_dvO/view
+  cache: /content/drive/MyDrive/AI6132/cache/fading
+  resolution: 512
+  device: cuda:0
+  precision: fp32
+  allow_upstream_internal_sizes: true
+  gender: null
+  environment_notes: Isolated Python 3.10 environment; community diffusers 0.27.1 / torch 2.0.1 recipe is untested. Two-prompt internal batch; inversion optimizes embeddings, never model weights.
