@@ -218,3 +218,44 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Research data, weights, generated samples and persistent external storage
+datasets/
+/data/
+checkpoints/
+/models/
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.onnx
+*.h5
+*.hdf5
+.huggingface/
+huggingface/
+hf_cache/
+.cache/
+generated/
+generated_images/
+generated_datasets/
+drive/
+MyDrive/
+GoogleDrive/
+outputs/*
+!outputs/metrics/
+!outputs/figures/
+.env.*
+secrets/
+secrets.*
+credentials*.json
+*.pem
+*.key
+
+# Model weight binaries and alternate external storage names
+*.bin
+FG-NET/
+fgnet/
+gdrive/
+google_drive/
+venv*/
+.venv*/

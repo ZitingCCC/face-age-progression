@@ -1,0 +1,12 @@
+# Planned M1 defaults, not an implemented model.
+model: null
+model_version: null
+batch_size: 1
+height: 512
+width: 512
+inference_steps: 30
+guidance_scale: 7.5
+conditioning_strength: 0.5
+precision: auto
+memory_efficient_attention: true
+cpu_offload: true

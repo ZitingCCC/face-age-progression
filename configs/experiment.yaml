@@ -1,0 +1,12 @@
+experiment_id: null
+method: null
+seed: 42
+deterministic: true
+source_image: null
+source_age: null
+target_age: null
+paths:
+  environment: local
+  project_root: null
+  storage_root: null
+  drive_root: null
