@@ -6,11 +6,11 @@ Task 01 provides reusable infrastructure only. No face-aging model, dataset pipe
 
 The planned architecture consists of an existing GAN baseline (M0), pretrained diffusion age progression (M1), and identity-aware candidate selection (M2). Future evaluation will measure target-age accuracy, identity similarity, image quality, and inference time. Dataset splits must separate subject IDs.
 
-Codex Cloud is the CPU development and testing environment. Google Colab Free is the intended GPU execution environment, with unpredictable hardware and runtime availability. Google Drive holds persistent data and results; code is maintained in GitHub. GPU execution has not been verified in Task 01.
+Codex Cloud is the CPU development and testing environment. Google Colab Free is the intended GPU execution environment, with unpredictable hardware and runtime availability. Google Drive holds persistent data and results; code is maintained in GitHub. Actual Colab execution, Drive mounting, and CUDA operation require manual verification.
 
 ```text
 configs/                 YAML experiment, diffusion, and identity settings
-notebooks/               Five markdown-only workflow placeholders
+notebooks/               Colab setup notebook and four workflow placeholders
 src/
   data/                  Reserved dataset package
   models/                Reserved model package
@@ -31,7 +31,7 @@ python -m pytest -v
 python -c "import src; from src.utils.device import detect_device; detect_device()"
 ```
 
-The runtime requirements are intentionally minimal and are not a cloud environment freeze. In Colab, retain its installed CUDA-enabled PyTorch and install `requirements.txt` if needed. Diffusers and model-specific dependencies will be added when model implementation is requested. Tests require no GPU, internet access, dataset, or pretrained model once dependencies are installed.
+The runtime requirements are intentionally minimal and are not a cloud environment freeze. The Colab setup notebook installs `requirements.txt` with constraints that preserve the supplied PyTorch and torchvision builds. Diffusers and model-specific dependencies will be added when model implementation is requested. Tests require no GPU, internet access, dataset, or pretrained model once dependencies are installed.
 
 Configuration and utility usage:
 
@@ -60,3 +60,18 @@ Future experiment runners should save each output immediately, then atomically w
 `set_seed` seeds Python, NumPy, PyTorch, and available CUDA devices, enables deterministic algorithms by default, and disables cuDNN benchmarking. Call it before CUDA initialization. Determinism is limited to a fixed hardware/software environment, and unsupported deterministic operations may raise errors. Python hash randomization requires `PYTHONHASHSEED` before launching Python.
 
 Datasets, checkpoints, Hugging Face caches, generated images, Drive contents, environments, and secrets are ignored. Place external data and generated outputs in the designated ignored directories. Only small genuine metric files and final figures belong in the allowed output folders; no experimental results are supplied here.
+
+## Running on Google Colab
+
+1. Open `notebooks/01_setup.ipynb` in Google Colab.
+2. Select **Runtime → Change runtime type → GPU**.
+3. Configure `GITHUB_OWNER`, `GITHUB_REPO`, and `GITHUB_BRANCH` if needed (defaults: `ZitingCCC/face-age-progression`, `main`).
+4. Only for a private repository, add `GITHUB_TOKEN` to Colab Secrets, enable notebook access, and set `PRIVATE_REPOSITORY = True`. Never paste credentials into notebook cells.
+5. Run the notebook from top to bottom and approve Google Drive mounting when prompted.
+6. Confirm CUDA diagnostics. CPU setup can pass, but generation experiments should not run without CUDA.
+7. Confirm `data`, `models`, `generated`, `results`, and `cache` exist under `/content/drive/MyDrive/AI6132`.
+8. Confirm the setup smoke test passes and the setup summary is printed.
+
+The checkout stays at `/content/face-age-progression`; large persistent files and future Hugging Face caches use Drive. Rerunning preserves persistent files and refuses to update a checkout with local changes or a divergent branch. Save local edits before updating. Dependency conflicts stop installation rather than replace Colab's PyTorch builds. Restart the runtime if pip requests it, then rerun setup.
+
+This notebook prepares infrastructure only and downloads no datasets or pretrained models. Its temporary metadata is a setup check, not an experimental result. CPU tests and static notebook validation do not verify actual Colab execution, Drive authorization/persistence, or GPU behavior; check those manually in Colab.
