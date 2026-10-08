@@ -15,6 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.models.feasibility import SmokeMetadata, check_external
 from src.utils.metadata import write_metadata
 from src.models.sam_runtime import check_ninja
+from src.models.fading_runtime import prepare_batch_utility
 
 
 def sam(request, torch):
@@ -57,6 +58,7 @@ def sam(request, torch):
 
 def fading(request):
     config = request['config']
+    prepare_batch_utility(config['external_repository'])
     # Upstream owns inversion/editing; never disable gradients for null inversion.
     # Pipeline is local-only via subprocess HF offline environment variables.
     sys.argv = ['age_editing.py', '--image_path', request['source_image'],
