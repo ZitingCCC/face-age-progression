@@ -10,6 +10,7 @@ import tempfile
 from src.utils.metadata import ExperimentMetadata, write_metadata, read_metadata
 from src.utils.resume import is_completed
 from .sam_runtime import check_sam_runtime
+from .fading_runtime import batch_utility_source
 
 
 @dataclass
@@ -61,7 +62,7 @@ def select_source(metadata_path, raw_root, target_age=30, max_source_age=17):
 
 
 def check_external(model, config, *, runtime=True):
-    """Check local assets/revision and SAM Ninja runtime without loading models."""
+    """Check assets/revision, SAM Ninja and FADING batch source without models."""
     if model not in ('sam', 'fading'):
         raise ValueError('Unknown feasibility model')
     repo = Path(config['external_repository']).resolve()
@@ -99,6 +100,9 @@ def check_external(model, config, *, runtime=True):
     result = {'revision': revision, 'repository': str(repo), 'checkpoint': str(checkpoint)}
     if model == 'sam' and runtime:
         result['ninja'] = check_sam_runtime(config, worker_environment(model, config))
+    if model == 'fading':
+        batch_utility_source(repo)
+        result['batch_compatibility'] = 'unused IPython.display import omitted in memory'
     return result
 
 

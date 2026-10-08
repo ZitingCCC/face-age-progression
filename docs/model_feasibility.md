@@ -318,6 +318,65 @@ failure details. CPU regressions exercise the real Matplotlib import with notebo
 registration unavailable, without loading models or requiring CUDA.
 **Real Colab FADING GPU generation remains pending until this rerun.**
 
+### FADING missing IPython after Task 04B-Fix1: Task 04B-Fix2
+
+The researcher reran the exact FADING command above after the Matplotlib fix.
+The previous backend failure was resolved. Dependency/checkpoint/preflight/CUDA
+checks had passed and Drive was writable. The worker selected Tesla T4 (`cuda:0`,
+`15637086208` total GPU memory bytes). The isolated runtime remained Python
+3.10.21, torch `2.0.1+cu117`, torchvision `0.15.2+cu117`, diffusers `0.27.1`,
+transformers `4.36.2`, accelerate `0.28.0`, NumPy `1.26.4`, and huggingface_hub
+`0.25.2`. This second attempt returned code 1 after approximately **13.2 seconds**:
+
+```text
+RuntimeError: ModuleNotFoundError: No module named 'IPython'
+```
+
+No output PNG was created and no CUDA OOM was observed. This is failed startup
+evidence, not a FADING inference benchmark or evidence of successful checkpoint
+loading/inference.
+
+**Pinned-source diagnosis:** `model_worker.fading()` runs `age_editing.py`, which
+imports `p2p.py`; that imports `FADING_util.ptp_utils`. `null_inversion.py` also
+imports the same utility. At revision `b1fc2e84fc02a2e048593766803627e219bfd017`,
+[ptp_utils.py](https://github.com/gh-BumsooKim/FADING_stable/blob/b1fc2e84fc02a2e048593766803627e219bfd017/FADING_util/ptp_utils.py)
+contains the module-level statement `from IPython.display import display`.
+There are **no active references to `display` anywhere in that file**; even
+`view_images` returns an image array rather than calling display. IPython is an
+unused notebook/display dependency, not a requirement of this batch inference
+path. The community repository's pinned requirements and README setup instructions
+do not declare IPython. Its adjacent `from tqdm.notebook import tqdm` also has no
+active references; actual editing/inversion progress loops use `from tqdm import
+tqdm` in `p2p.py` and `null_inversion.py`. We leave those progress imports unchanged.
+
+**Minimal project-side compatibility:** before upstream imports, the FADING
+worker prepares the real utility module from its local source, omitting only the
+unused `IPython.display` import from an in-memory AST. No external file is rewritten
+and no fake IPython module/display implementation is installed. All remaining
+upstream code executes unchanged. The guard requires exactly that module-level
+import with no `display` references, rejects source changes requiring display,
+checks that the utility stays inside the configured checkout, refuses to overwrite
+an already imported utility, and removes partial module registration on failure.
+Existing clean pinned-revision checks still run before this compatibility step.
+
+The old preflight checked external entrypoints, pipeline assets, interpreter and
+revision, but neither imported nor inspected this transitive utility; therefore
+it missed the unconditional IPython import. `smoke_fading.py --check` now parses
+the utility and validates the compatibility guard. It imports no upstream code,
+loads no models/checkpoints, downloads nothing, and requires no GPU. Missing or
+changed utility source fails before generation. Passing preflight establishes
+this narrow compatibility only, not all dependencies or GPU feasibility.
+
+After merge, update the clean checkout to main and rerun the preflight and exact
+one-image command in the preceding section. **No Colab environment installation
+command is required:** do not install IPython, modify either isolated environment,
+change package versions or delete caches for this fix. SAM, parent/global
+environment, FADING `MPLBACKEND=Agg`, PATH/CUDA variables, offline/cache behavior,
+model settings and precision remain unchanged. The Transformers offline/cache
+message remains uninvestigated. CPU tests use synthetic upstream utilities and
+block IPython/model imports; Codex performed no real GPU generation.
+**Real Colab FADING GPU generation remains pending until the rerun.**
+
 ## Checkpoints, local-only execution and licenses
 
 Manually obtain weights via the links in `configs/models.yaml` and verify their
