@@ -207,7 +207,8 @@ plugin. It is applied before any Matplotlib import, including the environment
 used by the Ninja preflight. Parent/global `os.environ`, the canonical notebook,
 both PyTorch installations, external SAM checkout, checkpoints and datasets
 remain unchanged. The isolated Ninja bin prepend, inherited PATH and CUDA
-variables remain intact; FADING inherits its original backend unchanged.
+variables remain intact. At the time of this SAM fix, FADING inherited its
+original backend unchanged; the later FADING-only correction is documented below.
 
 The two `TORCH_CUDA_ARCH_LIST is not set` warnings are separate and non-fatal in
 the supplied log. PyTorch defaults to visible-card architectures when the variable
@@ -247,6 +248,75 @@ compatibility with Colab's driver is untested. Never install this requirements
 file into the canonical interpreter. No main requirements changes are needed.
 Use one model process at a time; subprocess isolation releases its allocations
 on exit. The notebook's parent does not load either model.
+
+### FADING Matplotlib backend failure: Task 04B-Fix1
+
+The researcher reported the following **failed real Colab smoke attempt** on
+merged main. The worker successfully selected Tesla T4; dependency checks, CUDA
+availability, a CUDA tensor allocation, and `python scripts/smoke_fading.py --check`
+had passed. The external checkout was `/content/FADING_stable`, pinned to
+`b1fc2e84fc02a2e048593766803627e219bfd017`, with Python
+`/content/fading-env/bin/python` (3.10.21), torch `2.0.1+cu117`, torchvision
+`0.15.2+cu117`, diffusers `0.27.1`, transformers `4.36.2`, accelerate `0.28.0`,
+NumPy `1.26.4`, and huggingface_hub `0.25.2`. The specialized checkpoint at
+`/content/drive/MyDrive/AI6132/models/fading/finetune_double_prompt_150_random`
+existed and passed project preflight. These checks do not establish generation
+feasibility.
+
+The source was FG-NET `001A02.JPG`, source age 2, target age 30, gender prompt
+`male`. Generation returned code 1 after approximately **13.2 seconds**, with
+**no PNG** at the intended output
+`/content/drive/MyDrive/AI6132/generated/smoke/fading_001A02_age30_male.png`.
+The error was:
+
+```text
+RuntimeError: ValueError: Key backend: 'module://matplotlib_inline.backend_inline' is not a valid value for backend
+```
+
+The supported-backend list included `agg`. This is failed-attempt evidence,
+not a successful inference benchmark. A Transformers offline/cache migration
+warning preceded the failure. It remains uninvestigated: Matplotlib initialization
+failed first, and there is no evidence yet that the warning blocks generation.
+Offline flags and cache behavior are unchanged in this task.
+
+**Cause and import path:** our `model_worker.fading()` executes upstream
+`age_editing.py` through `runpy.run_path`. At the pinned revision,
+[age_editing.py](https://github.com/gh-BumsooKim/FADING_stable/blob/b1fc2e84fc02a2e048593766803627e219bfd017/age_editing.py)
+imports `FADING_util.util`, whose
+[module-level pyplot import](https://github.com/gh-BumsooKim/FADING_stable/blob/b1fc2e84fc02a2e048593766803627e219bfd017/FADING_util/util.py)
+initializes Matplotlib before the script's pipeline loading. The parent
+Colab/IPython notebook supplies `MPLBACKEND=module://matplotlib_inline.backend_inline`;
+the launcher previously copied it unchanged into FADING's isolated interpreter.
+That notebook backend was rejected there. The supplied evidence does not specify
+Matplotlib/inline package versions; we do not assert a particular plugin version.
+
+**Scoped fix:** the FADING branch of `worker_environment` sets exactly
+`MPLBACKEND=Agg` in the child copy before process startup and upstream imports.
+Agg is built in and non-interactive, so no notebook backend registration is needed.
+Parent/global `os.environ`, canonical Colab, both isolated environments, external
+source, checkpoints, datasets, package versions, model settings and precision are
+unchanged. FADING's PATH and CUDA variables are preserved. SAM's existing Agg
+override and Ninja PATH prepend remain exactly as before; the researcher reports
+SAM has already passed real GPU generation. No new SAM GPU run was done in Codex.
+
+After merge, update the clean project checkout to main and run the same command:
+
+```bash
+git -C /content/face-age-progression switch main
+git -C /content/face-age-progression pull --ff-only origin main
+cd /content/face-age-progression
+python scripts/smoke_fading.py --check
+python scripts/smoke_fading.py \
+  --source /content/drive/MyDrive/AI6132/data/fgnet/raw/001A02.JPG \
+  --source-age 2 --target-age 30 --gender male \
+  --output /content/drive/MyDrive/AI6132/generated/smoke/fading_001A02_age30_male.png
+```
+
+No install, environment activation, asset download or cache deletion is needed
+for this fix. Inspect the new Drive metadata and output, and retain any subsequent
+failure details. CPU regressions exercise the real Matplotlib import with notebook
+registration unavailable, without loading models or requiring CUDA.
+**Real Colab FADING GPU generation remains pending until this rerun.**
 
 ## Checkpoints, local-only execution and licenses
 

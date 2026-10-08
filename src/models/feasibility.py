@@ -103,7 +103,7 @@ def check_external(model, config, *, runtime=True):
 
 
 def worker_environment(model, config):
-    """Copy CUDA/Colab settings; SAM uses its interpreter bin and headless Agg."""
+    """Copy CUDA/Colab settings; use headless Agg and SAM's interpreter bin."""
     cache = Path(config['cache']).resolve()
     if cache.is_relative_to(PROJECT_ROOT):
         raise ValueError('Model caches must remain outside the project checkout')
@@ -115,6 +115,9 @@ def worker_environment(model, config):
         isolated_bin = str(Path(config['python']).absolute().parent)
         previous_path = env.get('PATH', '')
         env['PATH'] = isolated_bin + (os.pathsep + previous_path if previous_path else '')
+    elif model == 'fading':
+        # This isolated batch worker also cannot rely on notebook backend plugins.
+        env['MPLBACKEND'] = 'Agg'
     env.update(HF_HOME=str(cache / 'huggingface'), TORCH_HOME=str(cache / 'torch'),
                TORCH_EXTENSIONS_DIR=str(cache / 'extensions'), HF_HUB_OFFLINE='1',
                TRANSFORMERS_OFFLINE='1', PYTHONDONTWRITEBYTECODE='1')

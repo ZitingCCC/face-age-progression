@@ -196,23 +196,27 @@ def test_internal_size_gate(assets):
         SAMAdapter(config('sam')).generate(source, 30, output)
 
 
-def test_subprocess_handoff_isolated_and_offline(tmp_path, monkeypatch):
+@pytest.mark.parametrize('model', ['sam', 'fading'])
+def test_subprocess_handoff_isolated_and_offline(tmp_path, monkeypatch, model):
     from src.models import feasibility
     monkeypatch.setenv('MPLBACKEND', 'module://matplotlib_inline.backend_inline')
-    settings = config('sam')
+    settings = config(model)
     settings['cache'] = str(tmp_path / 'cache with spaces')
     settings['external_repository'] = str(tmp_path / 'external with spaces')
     settings['upstream_repository'] = 'https://example.invalid/upstream'
     output = tmp_path / 'output.png'
-    request = dict(model='sam', config=settings, source_image='/source with spaces;literal.jpg',
+    request = dict(model=model, config=settings, source_image='/source with spaces;literal.jpg',
                    source_age=5, target_age=30, output_path=str(output))
     monkeypatch.setattr(feasibility, 'check_external', lambda *_: {'revision': 'fake'})
     def run(args, **kwargs):
         assert isinstance(args, list) and not kwargs.get('shell', False)
         assert args[0] == sys.executable
         assert kwargs['cwd'] == settings['external_repository']
-        assert kwargs['env']['PATH'].startswith(str(Path(settings['python']).absolute().parent) + os.pathsep)
-        assert kwargs['env']['PATH'].endswith(os.environ.get('PATH', ''))
+        if model == 'sam':
+            assert kwargs['env']['PATH'].startswith(str(Path(settings['python']).absolute().parent) + os.pathsep)
+            assert kwargs['env']['PATH'].endswith(os.environ.get('PATH', ''))
+        else:
+            assert kwargs['env']['PATH'] == os.environ.get('PATH', '')
         assert kwargs['env']['MPLBACKEND'] == 'Agg'
         assert os.environ['MPLBACKEND'] == 'module://matplotlib_inline.backend_inline'
         assert kwargs['env']['HF_HUB_OFFLINE'] == '1'
