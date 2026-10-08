@@ -196,16 +196,30 @@ def test_unset_cuda_arch_list_stays_unset(isolated, monkeypatch, model):
     assert 'TORCH_CUDA_ARCH_LIST' not in worker_environment(model, config)
 
 
-def test_fading_retains_notebook_backend(isolated, monkeypatch):
+@pytest.mark.parametrize('inherited', ['module://matplotlib_inline.backend_inline', 'TkAgg', None])
+def test_fading_headless_backend_preserves_parent_path_cuda(isolated, monkeypatch, inherited):
     config, _ = isolated
-    monkeypatch.setenv('MPLBACKEND', 'module://matplotlib_inline.backend_inline')
+    if inherited is None:
+        monkeypatch.delenv('MPLBACKEND', raising=False)
+    else:
+        monkeypatch.setenv('MPLBACKEND', inherited)
     monkeypatch.setenv('PATH', '/canonical/bin:/cuda/bin')
-    assert worker_environment('fading', config)['MPLBACKEND'] == os.environ['MPLBACKEND']
-    assert worker_environment('fading', config)['PATH'] == os.environ['PATH']
+    for key, value in {'CUDA_HOME': '/usr/local/cuda', 'CUDA_VISIBLE_DEVICES': '0',
+                       'LD_LIBRARY_PATH': '/cuda/lib64', 'TORCH_CUDA_ARCH_LIST': '7.5'}.items():
+        monkeypatch.setenv(key, value)
+    parent = dict(os.environ)
+    child = worker_environment('fading', config)
+    assert child['MPLBACKEND'] == 'Agg'
+    assert child == dict(parent, MPLBACKEND='Agg', HF_HOME=str(Path(config['cache']) / 'huggingface'),
+                         TORCH_HOME=str(Path(config['cache']) / 'torch'),
+                         TORCH_EXTENSIONS_DIR=str(Path(config['cache']) / 'extensions'),
+                         HF_HUB_OFFLINE='1', TRANSFORMERS_OFFLINE='1', PYTHONDONTWRITEBYTECODE='1')
+    assert dict(os.environ) == parent
 
 
-def test_real_matplotlib_subprocess_inline_failure_and_agg_fix(tmp_path, monkeypatch):
-    # Matplotlib is an external SAM dependency, not a core project requirement.
+@pytest.mark.parametrize('model', ['sam', 'fading'])
+def test_real_matplotlib_subprocess_inline_failure_and_agg_fix(tmp_path, monkeypatch, model):
+    # Matplotlib is an external model dependency, not a core project requirement.
     # Use an already installed CPU interpreter; never install/download in tests.
     candidates = dict.fromkeys((sys.executable, getattr(sys, '_base_executable', sys.executable)))
     python = None
@@ -255,7 +269,7 @@ print('Backend:', matplotlib.get_backend())
     # Registry-based Matplotlib produces the exact reported ValueError; older
     # versions may accept the module name then fail to import the absent plugin.
     assert 'Key backend:' in inherited.stderr or 'absent notebook plugin' in inherited.stderr
-    corrected = subprocess.run([python, '-c', code], env=worker_environment('sam', config),
+    corrected = subprocess.run([python, '-c', code], env=worker_environment(model, config),
                                capture_output=True, text=True, check=True)
     assert corrected.stdout.strip().lower() == 'backend: agg'
     assert os.environ['MPLBACKEND'] == 'module://matplotlib_inline.backend_inline'
