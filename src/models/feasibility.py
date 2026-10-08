@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import traceback
 
 from src.utils.metadata import ExperimentMetadata, write_metadata, read_metadata
 from src.utils.resume import is_completed
@@ -25,6 +26,11 @@ class SmokeMetadata(ExperimentMetadata):
     versions: dict | None = None
     measurement_scope: str | None = None
     test_only: bool = False
+
+
+@dataclass
+class FadingFailureMetadata(SmokeMetadata):
+    error_traceback: str | None = None
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -183,6 +189,7 @@ class Adapter:
             raise FileExistsError('Existing unmatched output; use a new output path after inspecting metadata')
         record.output_path = str(output)
         record.precision = config.get('precision')
+        worker_traceback = None
         try:
             if not source.is_file():
                 raise FileNotFoundError(f'Missing source image: {source}')
@@ -227,6 +234,8 @@ class Adapter:
                     if key in result:
                         setattr(record, key, result[key])
                 if result.get('status') != 'completed':
+                    if self.model == 'fading':
+                        worker_traceback = result.get('error_traceback')
                     raise RuntimeError(result.get('error_message') or 'Worker failed')
                 if not staged.is_file() or not staged.stat().st_size:
                     raise RuntimeError('Backend produced no output')
@@ -235,6 +244,9 @@ class Adapter:
         except Exception as error:
             record.status = 'failed'
             record.error_message = f'{type(error).__name__}: {error}'
+            if self.model == 'fading':
+                record = FadingFailureMetadata(**asdict(record),
+                                              error_traceback=worker_traceback or traceback.format_exc())
             write_metadata(metadata_path, record)
             raise
         write_metadata(metadata_path, record)

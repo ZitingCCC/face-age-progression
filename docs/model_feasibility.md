@@ -377,6 +377,83 @@ message remains uninvestigated. CPU tests use synthetic upstream utilities and
 block IPython/model imports; Codex performed no real GPU generation.
 **Real Colab FADING GPU generation remains pending until the rerun.**
 
+### FADING NumPy indexing failure: Task 04B-Fix3 diagnostics
+
+The researcher reported a third real Colab attempt on main
+`83afffabb1ded0cafc4be52cbb4206afcfca87ae`, using the same one-image command.
+The Matplotlib and unused-IPython initialization blockers had been fixed in
+PRs #7 and #8. Tesla T4 was selected and **all six Stable Diffusion pipeline
+components loaded**. Image generation still failed:
+
+- Return code 1; Colab wall time **24.7 seconds**.
+- Recorded model runtime **20.4085 seconds**.
+- Peak CUDA allocated **4,304,343,040 bytes**; reserved **4,391,436,288 bytes**.
+- No output PNG; metadata status `failed` at
+  `/content/drive/MyDrive/AI6132/generated/smoke/fading_001A02_age30_male.json`.
+- Reported error:
+
+```text
+RuntimeError: IndexError: too many indices for array: array is 2-dimensional, but 3 were indexed
+```
+
+These are observed measurements from a **failed attempt**, not a successful
+inference benchmark. Pipeline loading does not establish successful inversion,
+editing or generation. **The complete original upstream traceback is not available
+for this attempt**, so its exact failing filename/line is not established.
+
+**Where diagnostics were lost:** `scripts/smoke_fading.py` calls the shared CLI
+and FADING adapter. The adapter invokes `scripts/model_worker.py` as a subprocess.
+The worker caught the original exception and stored only `type(error).__name__`
+and its message in temporary atomic JSON. The parent read that JSON, raised a new
+`RuntimeError`, and atomically saved its summary to Drive. The CLI then converted
+the exception to a one-line `SystemExit`. No original traceback crossed the
+subprocess boundary; the temporary worker JSON was later removed.
+
+**Scoped diagnostics fix:** on FADING failure, the worker formats the original
+traceback while still in the exception handler, prints it to stderr, and includes
+`error_traceback` in its result JSON. The parent preserves that exact text as a
+top-level `error_traceback` in the existing Drive failure metadata. Exception
+chains, upstream filenames and line numbers survive. The existing `error_message`
+summary remains unchanged. Parent-only FADING failures record their own traceback;
+they cannot reconstruct upstream frames when no worker record exists. No locals,
+environment-variable dump, configuration dump or model weights are added to the
+diagnostic text. Standard tracebacks include exception messages and source lines.
+Successful metadata/resume behavior and SAM diagnostics remain unchanged. Existing
+atomic writers are reused; failed attempts without a PNG remain retryable.
+
+**Source-supported hypothesis, not a confirmed cause:** at pinned revision
+`b1fc2e84fc02a2e048593766803627e219bfd017`,
+[null_inversion.py:23](https://github.com/gh-BumsooKim/FADING_stable/blob/b1fc2e84fc02a2e048593766803627e219bfd017/null_inversion.py#L23)
+uses `np.array(Image.open(image_path))[:, :, :3]` in `load_512`. It does not convert
+to RGB first. A grayscale/palette image can produce a 2D array and fail at this
+three-index expression. `NullInversion.invert` calls `load_512` at line 190,
+after pipeline loading, making this a plausible path. The real source image's
+mode and the failing line have not been verified in Codex. Other three-index
+NumPy expressions occur in attention visualization helpers; batch attention masks
+operate on torch tensors. The batch image loader performs cropping/resizing,
+not a face-detector/alignment stage. No preprocessing, mask, alignment, source
+image or external code change is made based on these hypotheses.
+
+After merge, rerun in the existing Colab GPU runtime:
+
+```bash
+git -C /content/face-age-progression switch main
+git -C /content/face-age-progression pull --ff-only origin main
+cd /content/face-age-progression
+python scripts/smoke_fading.py --check
+python scripts/smoke_fading.py \
+  --source /content/drive/MyDrive/AI6132/data/fgnet/raw/001A02.JPG \
+  --source-age 2 --target-age 30 --gender male \
+  --output /content/drive/MyDrive/AI6132/generated/smoke/fading_001A02_age30_male.png
+```
+
+No install, dependency/settings change or cache deletion is needed. On failure,
+inspect stderr and the same Drive JSON's `error_traceback` alongside `error_message`
+and measurements. Keep the original failed-attempt metadata if it must be retained
+before retrying the same path. Use the actual traceback to establish the failing
+line before proposing an image-processing fix. **FADING GPU generation remains
+unsuccessful; a real Colab rerun with these diagnostics is required.**
+
 ## Checkpoints, local-only execution and licenses
 
 Manually obtain weights via the links in `configs/models.yaml` and verify their
