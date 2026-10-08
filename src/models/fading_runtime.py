@@ -9,6 +9,26 @@ import sys
 MODULE = 'FADING_util.ptp_utils'
 
 
+def normalize_source(source, destination):
+    """Decode once, convert with Pillow semantics, and stage lossless RGB PNG."""
+    from PIL import Image
+    source, destination = Path(source).resolve(), Path(destination).resolve()
+    project = Path(__file__).resolve().parents[2]
+    if destination == source or destination.is_relative_to(project):
+        raise ValueError('FADING RGB staging must preserve the source and stay outside Git')
+    try:
+        with Image.open(source) as image:
+            original_mode = image.mode
+            rgb = image.convert('RGB')
+    except (OSError, ValueError, Image.DecompressionBombError) as error:
+        raise ValueError(f'Cannot decode FADING source image {source}: {error}') from error
+    with rgb:
+        note = dict(method="Pillow.Image.convert('RGB')", original_mode=original_mode,
+                    staged_mode='RGB', staged_format='PNG', size=list(rgb.size))
+        rgb.save(destination, format='PNG')
+    return note
+
+
 def batch_utility_source(repository):
     """Validate and omit only an unused notebook display import, in memory."""
     root = Path(repository).resolve()

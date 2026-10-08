@@ -454,6 +454,79 @@ before retrying the same path. Use the actual traceback to establish the failing
 line before proposing an image-processing fix. **FADING GPU generation remains
 unsuccessful; a real Colab rerun with these diagnostics is required.**
 
+### Confirmed grayscale-input failure: Task 04B-Fix4 RGB staging
+
+The fourth real Colab attempt used main
+`207227a2de093bfc8ddb07a827473dab18b96aa5` and the same one-image command.
+Tesla T4 was selected and all **6/6 pipeline components loaded**. Generation
+returned code 1 with no PNG and no observed CUDA OOM. Colab wall time was
+**25.54 seconds**, recorded runtime **20.24910563 seconds**, peak CUDA allocated
+**4,297,527,296 bytes**, and peak CUDA reserved **4,422,893,568 bytes**.
+These are failed-attempt measurements, not successful inference results.
+
+The preserved real traceback established the exact pinned upstream path:
+`age_editing.py:52 → NullInversion.invert → null_inversion.py:190 → load_512 →
+null_inversion.py:23`, where `np.array(Image.open(image_path))[:, :, :3]` raised:
+
+```text
+IndexError: too many indices for array: array is 2-dimensional, but 3 were indexed
+```
+
+The researcher inspected the original FG-NET `001A02.JPG` in Colab without
+modifying it: Pillow mode **L**, size **(321, 386)**, NumPy shape **(386, 321)**,
+ndim **2**. In-memory `image.convert('RGB')` produced RGB mode and shape
+**(386, 321, 3)**, ndim **3**, and passed the RGB compatibility check. This
+confirms the specific failure cause: grayscale input meets an upstream loader
+that assumes three channels. It does **not** establish complete FADING inference
+feasibility; further failures or memory limits may still occur.
+
+**Project-side solution:** the parent subprocess launcher decodes the selected
+FADING source with Pillow, applies `Image.open(source).convert('RGB')`, and saves
+a lossless `source_rgb.png` inside its existing per-invocation
+`smoke-*` temporary directory under the configured FADING Drive cache
+(`/content/drive/MyDrive/AI6132/cache/fading`). Decoding/conversion finishes before
+the worker launches or loads models. Unreadable images raise a clear
+`Cannot decode FADING source image` error with existing failure traceback handling.
+The model/runtime `--check` remains independent of any experiment source image.
+
+The worker sends this temporary PNG as upstream `--image_path` and matches the
+upstream output filename to its staged basename before the existing output
+replacement. The request and persistent metadata retain **the original FG-NET
+path** as `source_image`. FADING metadata adds `source_preprocessing` with the
+Pillow conversion method, original mode, staged RGB/PNG format and unchanged
+dimensions; it does not use the temporary path as provenance or change model
+configuration. The RGB file is removed by the existing temporary-directory
+context on normal success and exception/failure. No permanent dataset duplicate
+is created, and raw source bytes are never overwritten. Abrupt host termination
+can interrupt ordinary temporary cleanup.
+
+Pillow conversion semantics apply to all supported modes, including L, P, RGBA
+and CMYK. RGBA-to-RGB drops alpha without adding background compositing. There is
+no resizing, cropping, alignment, sharpening or pixel-value normalization here;
+upstream keeps its existing crop/resize to 512. PNG avoids an extra lossy JPEG
+encode. SAM, external FADING/SAM source, dependencies, checkpoints, precision,
+CUDA/PATH/offline/cache settings, target age, seed, gender prompt, Agg fix,
+IPython compatibility and traceback diagnostics remain unchanged.
+
+After merge, run these commands in the existing Colab GPU runtime; no package
+installation or model download is needed:
+
+```bash
+git -C /content/face-age-progression switch main
+git -C /content/face-age-progression pull --ff-only origin main
+cd /content/face-age-progression
+python scripts/smoke_fading.py --check
+python scripts/smoke_fading.py \
+  --source /content/drive/MyDrive/AI6132/data/fgnet/raw/001A02.JPG \
+  --source-age 2 --target-age 30 --gender male \
+  --output /content/drive/MyDrive/AI6132/generated/smoke/fading_001A02_age30_male.png
+```
+
+Retain old failed-attempt JSON separately beforehand if needed. Inspect the new
+Drive status, `source_preprocessing`, traceback on failure and actual output;
+keep any later failure evidence. CPU tests use tiny synthetic images only.
+**Real FADING GPU generation remains pending until this rerun.**
+
 ## Checkpoints, local-only execution and licenses
 
 Manually obtain weights via the links in `configs/models.yaml` and verify their

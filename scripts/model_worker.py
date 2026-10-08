@@ -59,15 +59,16 @@ def sam(request, torch):
 
 def fading(request):
     config = request['config']
+    source = request['fading_source_image']
     prepare_batch_utility(config['external_repository'])
     # Upstream owns inversion/editing; never disable gradients for null inversion.
     # Pipeline is local-only via subprocess HF offline environment variables.
-    sys.argv = ['age_editing.py', '--image_path', request['source_image'],
+    sys.argv = ['age_editing.py', '--image_path', source,
                 '--age_init', str(request['source_age']), '--gender', config['gender'],
                 '--specialized_path', config['checkpoint'], '--save_aged_dir', str(Path(request['output_path']).parent),
                 '--target_ages', str(request['target_age'])]
     runpy.run_path(str(Path(config['external_repository']) / 'age_editing.py'), run_name='__main__')
-    name = Path(request['source_image']).name.split('.')[-2]
+    name = Path(source).name.split('.')[-2]
     generated = Path(request['output_path']).parent / f'{name}_{request["target_age"]}.png'
     if not generated.is_file():
         raise RuntimeError('Expected upstream FADING output was not created')
@@ -85,6 +86,8 @@ def main():
               'peak_cuda_memory_bytes': None, 'peak_cuda_reserved_bytes': None,
               'measurement_scope': 'load + preprocess/alignment + inversion/editing + save; excludes process startup',
               'output_resolution': None, 'versions': {}, 'device': {}}
+    if request['model'] == 'fading':
+        result['source_preprocessing'] = request.get('source_preprocessing')
     torch = None
     started = None
     cuda_measured = False
