@@ -6,6 +6,7 @@ from pathlib import Path
 import runpy
 import sys
 import time
+import traceback
 from importlib.metadata import version, PackageNotFoundError
 from argparse import Namespace
 from functools import partial
@@ -138,6 +139,11 @@ def main():
         result['status'] = 'completed'
     except Exception as error:
         result['error_message'] = f'{type(error).__name__}: {error}'
+        if request['model'] == 'fading':
+            # Capture original upstream frames before returning across subprocesses.
+            # Standard traceback formatting includes no locals or environment dump.
+            result['error_traceback'] = traceback.format_exc()
+            print(result['error_traceback'], file=sys.stderr, end='', flush=True)
     finally:
         if started is not None:
             result['wall_clock_inference_seconds'] = time.perf_counter() - started
