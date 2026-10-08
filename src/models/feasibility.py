@@ -103,12 +103,14 @@ def check_external(model, config, *, runtime=True):
 
 
 def worker_environment(model, config):
-    """Copy inherited CUDA/Colab settings; only SAM prepends its interpreter bin."""
+    """Copy CUDA/Colab settings; SAM uses its interpreter bin and headless Agg."""
     cache = Path(config['cache']).resolve()
     if cache.is_relative_to(PROJECT_ROOT):
         raise ValueError('Model caches must remain outside the project checkout')
     env = os.environ.copy()
     if model == 'sam':
+        # Notebook inline backends are not portable to the isolated batch worker.
+        env['MPLBACKEND'] = 'Agg'
         # Do not resolve the executable symlink: that would discard the venv bin.
         isolated_bin = str(Path(config['python']).absolute().parent)
         previous_path = env.get('PATH', '')

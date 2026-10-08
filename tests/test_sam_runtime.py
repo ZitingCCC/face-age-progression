@@ -167,3 +167,96 @@ from scripts import model_worker
 assert all(name not in sys.modules for name in ('torch', 'diffusers', 'models.psp', 'PIL'))
 '''
     subprocess.run([sys.executable, '-c', code], check=True)
+
+
+@pytest.mark.parametrize('inherited', ['module://matplotlib_inline.backend_inline', 'TkAgg', None])
+def test_sam_headless_backend_preserves_parent_path_cuda(isolated, monkeypatch, inherited):
+    config, _ = isolated
+    if inherited is None:
+        monkeypatch.delenv('MPLBACKEND', raising=False)
+    else:
+        monkeypatch.setenv('MPLBACKEND', inherited)
+    monkeypatch.setenv('PATH', '/canonical/bin:/usr/local/cuda/bin')
+    for key, value in {'CUDA_HOME': '/usr/local/cuda', 'CUDA_VISIBLE_DEVICES': '0',
+                       'LD_LIBRARY_PATH': '/cuda/lib64', 'TORCH_CUDA_ARCH_LIST': '8.0;8.6'}.items():
+        monkeypatch.setenv(key, value)
+    parent = dict(os.environ)
+    child = worker_environment('sam', config)
+    assert child['MPLBACKEND'] == 'Agg'
+    assert child['PATH'] == str(Path(config['python']).parent) + os.pathsep + parent['PATH']
+    for key in ('CUDA_HOME', 'CUDA_VISIBLE_DEVICES', 'LD_LIBRARY_PATH', 'TORCH_CUDA_ARCH_LIST'):
+        assert child[key] == parent[key]
+    assert dict(os.environ) == parent
+
+
+@pytest.mark.parametrize('model', ['sam', 'fading'])
+def test_unset_cuda_arch_list_stays_unset(isolated, monkeypatch, model):
+    config, _ = isolated
+    monkeypatch.delenv('TORCH_CUDA_ARCH_LIST', raising=False)
+    assert 'TORCH_CUDA_ARCH_LIST' not in worker_environment(model, config)
+
+
+def test_fading_retains_notebook_backend(isolated, monkeypatch):
+    config, _ = isolated
+    monkeypatch.setenv('MPLBACKEND', 'module://matplotlib_inline.backend_inline')
+    monkeypatch.setenv('PATH', '/canonical/bin:/cuda/bin')
+    assert worker_environment('fading', config)['MPLBACKEND'] == os.environ['MPLBACKEND']
+    assert worker_environment('fading', config)['PATH'] == os.environ['PATH']
+
+
+def test_real_matplotlib_subprocess_inline_failure_and_agg_fix(tmp_path, monkeypatch):
+    # Matplotlib is an external SAM dependency, not a core project requirement.
+    # Use an already installed CPU interpreter; never install/download in tests.
+    candidates = dict.fromkeys((sys.executable, getattr(sys, '_base_executable', sys.executable)))
+    python = None
+    for candidate in candidates:
+        probe = subprocess.run([candidate, '-c',
+                                "import importlib.util; print(importlib.util.find_spec('matplotlib') is not None)"],
+                               capture_output=True, text=True, check=True)
+        if probe.stdout.strip() == 'True':
+            python = candidate
+            break
+    if python is None:
+        pytest.skip('Optional Matplotlib subprocess check needs an installed CPU Matplotlib')
+    # Simulate the isolated environment lacking notebook-plugin registration;
+    # Matplotlib itself remains real and unmodified in both subprocesses.
+    code = '''
+import sys, importlib.abc, importlib.metadata as metadata, urllib.request
+urllib.request.urlopen = lambda *a, **k: (_ for _ in ()).throw(AssertionError('download'))
+original_points, original_version = metadata.entry_points, metadata.version
+def entry_points(**kwargs):
+    entries = original_points(**kwargs)
+    if kwargs.get('group') == 'matplotlib.backend':
+        return metadata.EntryPoints(e for e in entries if not e.value.startswith('matplotlib_inline'))
+    return entries
+def version(name):
+    if name.replace('_', '-').lower() == 'matplotlib-inline':
+        raise metadata.PackageNotFoundError(name)
+    return original_version(name)
+metadata.entry_points, metadata.version = entry_points, version
+class NoNotebookPlugin(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] == 'matplotlib_inline':
+            raise ModuleNotFoundError('test-only absent notebook plugin')
+sys.meta_path.insert(0, NoNotebookPlugin())
+import matplotlib.pyplot as plt
+import matplotlib
+figure = plt.figure()
+plt.close(figure)
+assert matplotlib.get_backend().lower() == 'agg'
+assert all(name not in sys.modules for name in ('torch', 'diffusers', 'models.psp', 'matplotlib_inline'))
+print('Backend:', matplotlib.get_backend())
+'''
+    monkeypatch.setenv('MPLBACKEND', 'module://matplotlib_inline.backend_inline')
+    monkeypatch.setenv('MPLCONFIGDIR', str(tmp_path / 'matplotlib-config'))
+    config = {'python': python, 'cache': str(tmp_path / 'model-cache-not-created')}
+    inherited = subprocess.run([python, '-c', code], env=dict(os.environ), capture_output=True, text=True)
+    assert inherited.returncode != 0
+    # Registry-based Matplotlib produces the exact reported ValueError; older
+    # versions may accept the module name then fail to import the absent plugin.
+    assert 'Key backend:' in inherited.stderr or 'absent notebook plugin' in inherited.stderr
+    corrected = subprocess.run([python, '-c', code], env=worker_environment('sam', config),
+                               capture_output=True, text=True, check=True)
+    assert corrected.stdout.strip().lower() == 'backend: agg'
+    assert os.environ['MPLBACKEND'] == 'module://matplotlib_inline.backend_inline'
+    assert not Path(config['cache']).exists()

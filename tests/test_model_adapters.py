@@ -198,6 +198,7 @@ def test_internal_size_gate(assets):
 
 def test_subprocess_handoff_isolated_and_offline(tmp_path, monkeypatch):
     from src.models import feasibility
+    monkeypatch.setenv('MPLBACKEND', 'module://matplotlib_inline.backend_inline')
     settings = config('sam')
     settings['cache'] = str(tmp_path / 'cache with spaces')
     settings['external_repository'] = str(tmp_path / 'external with spaces')
@@ -212,6 +213,8 @@ def test_subprocess_handoff_isolated_and_offline(tmp_path, monkeypatch):
         assert kwargs['cwd'] == settings['external_repository']
         assert kwargs['env']['PATH'].startswith(str(Path(settings['python']).absolute().parent) + os.pathsep)
         assert kwargs['env']['PATH'].endswith(os.environ.get('PATH', ''))
+        assert kwargs['env']['MPLBACKEND'] == 'Agg'
+        assert os.environ['MPLBACKEND'] == 'module://matplotlib_inline.backend_inline'
         assert kwargs['env']['HF_HUB_OFFLINE'] == '1'
         assert kwargs['env']['TRANSFORMERS_OFFLINE'] == '1'
         assert kwargs['env']['TORCH_EXTENSIONS_DIR'].startswith(settings['cache'])

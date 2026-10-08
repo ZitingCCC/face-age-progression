@@ -159,6 +159,73 @@ After merge, rerun in the existing GPU Colab session:
    new compiler/CUDA/checkpoint error and record it; do not downgrade canonical
    PyTorch. **Successful SAM GPU generation remains pending until this rerun.**
 
+### SAM Matplotlib backend failure after PR #5
+
+The researcher reported that the real Colab rerun passed PR #5's Ninja preflight
+and progressed beyond the previous Ninja availability blocker. With Tesla T4,
+Python 3.12, torch `2.5.1+cu121`, torchvision `0.20.1+cu121` and CUDA available,
+the worker again reported `15637086208` total VRAM bytes and selected `cuda:0`.
+The source was FG-NET `001A02.JPG` (age 2), target age 30, with intended output
+`/content/drive/MyDrive/AI6132/generated/smoke/sam_001A02_age30.png`.
+The attempt ran for a reported **121.77 seconds**, returned code 1, and produced
+**no output image**. The new error was:
+
+```text
+RuntimeError: ValueError: Key backend: 'module://matplotlib_inline.backend_inline' is not a valid value for backend
+```
+
+The reported supported-backend list included `agg`. This is failed-attempt
+evidence, not a successful generation/runtime benchmark.
+
+The exact project/upstream path is `model_worker.sam()` →
+`from utils.common import tensor2im` →
+[SAM utils/common.py at the pinned revision](https://github.com/yuval-alaluf/SAM/blob/c1895aef275e702fba7560284dc16df60d65210e/utils/common.py)
+→ module-scope `import matplotlib.pyplot as plt` → Matplotlib initialization.
+This import follows `from models.psp import pSp`, and precedes our checkpoint
+loading. `tensor2im` itself uses PIL; the pyplot import is incidental to SAM's
+shared visualization utilities. No SAM code selects a notebook backend here.
+
+[IPython kernel setup](https://github.com/ipython/ipykernel/blob/main/ipykernel/kernelapp.py)
+sets `MPLBACKEND=module://matplotlib_inline.backend_inline` when unset.
+[Matplotlib initialization](https://github.com/matplotlib/matplotlib/blob/v3.9.2/lib/matplotlib/__init__.py)
+reads `MPLBACKEND` and assigns `rcParams['backend']`.
+[The registry](https://github.com/matplotlib/matplotlib/blob/v3.10.7/lib/matplotlib/backends/registry.py)
+maps this module URI to `inline`, which requires external backend registration.
+Our PR #5 launcher copied the parent environment unchanged for this variable, so
+a notebook-specific setting crossed into the isolated batch process and was
+rejected by its Matplotlib. The Colab Matplotlib/inline package versions and an
+environment snapshot were not supplied; we do not assert a particular installed
+version or distinguish an absent plugin from incompatible registration there.
+A CPU subprocess with real Matplotlib 3.10.8 and simulated absent inline
+registration reproduces the exact `Key backend` ValueError; changing only the
+child backend to Agg permits pyplot/backend initialization without any model.
+
+**Scoped fix:** `worker_environment('sam', ...)` explicitly sets
+`MPLBACKEND=Agg` in its copied child environment. This built-in non-interactive
+backend is appropriate for the one-image batch worker and needs no Jupyter
+plugin. It is applied before any Matplotlib import, including the environment
+used by the Ninja preflight. Parent/global `os.environ`, the canonical notebook,
+both PyTorch installations, external SAM checkout, checkpoints and datasets
+remain unchanged. The isolated Ninja bin prepend, inherited PATH and CUDA
+variables remain intact; FADING inherits its original backend unchanged.
+
+The two `TORCH_CUDA_ARCH_LIST is not set` warnings are separate and non-fatal in
+the supplied log. PyTorch defaults to visible-card architectures when the variable
+is unset. We leave unset and explicitly configured values unchanged, and do not
+hardcode T4 architecture: Colab can assign other GPUs. The warnings and progression
+to Matplotlib do not establish whether every extension was freshly compiled,
+loaded from cache, or fully validated. **SAM GPU generation remains pending.**
+
+After merge, update the clean project checkout to `main` (`git switch main`, then
+`git pull --ff-only origin main` from `/content/face-age-progression`) and run
+`python scripts/smoke_sam.py --check`. Reuse the exact previous one-image command
+with the verified source path to `001A02.JPG`, `--source-age 2 --target-age 30`,
+the same intended output path, and verified `--trust-sam-checkpoint`.
+No package install, notebook-backend activation, architecture override, checkpoint
+download or cache deletion is required for this fix. Inspect the new status/output
+and preserve any new failure details on Drive; a failed JSON with no PNG is
+retryable. Do not report successful generation until a real rerun produces it.
+
 FADING: use a **separate Python 3.10 interpreter and venv**, with no system site
 packages. Obtain Python 3.10 through a reviewed environment manager (for example
 `uv python install 3.10`); do not replace Colab's Python. The following assumes
