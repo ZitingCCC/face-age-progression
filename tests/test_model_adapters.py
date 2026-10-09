@@ -207,6 +207,11 @@ def test_subprocess_handoff_isolated_and_offline(tmp_path, monkeypatch, model):
     output = tmp_path / 'output.png'
     request = dict(model=model, config=settings, source_image='/source with spaces;literal.jpg',
                    source_age=5, target_age=30, output_path=str(output))
+    if model == 'fading':
+        from PIL import Image
+        source = tmp_path / 'source with spaces;literal.png'
+        Image.new('L', (3, 2), 42).save(source)
+        request['source_image'] = str(source)
     monkeypatch.setattr(feasibility, 'check_external', lambda *_: {'revision': 'fake'})
     def run(args, **kwargs):
         assert isinstance(args, list) and not kwargs.get('shell', False)
@@ -223,7 +228,13 @@ def test_subprocess_handoff_isolated_and_offline(tmp_path, monkeypatch, model):
         assert kwargs['env']['TRANSFORMERS_OFFLINE'] == '1'
         assert kwargs['env']['TORCH_EXTENSIONS_DIR'].startswith(settings['cache'])
         transferred = json.loads(Path(args[-2]).read_text())
-        assert transferred == request
+        if model == 'fading':
+            assert {key: transferred[key] for key in request} == request
+            assert transferred['source_preprocessing']['staged_mode'] == 'RGB'
+            with Image.open(transferred['fading_source_image']) as image:
+                assert image.mode == 'RGB'
+        else:
+            assert transferred == request
         from src.utils.metadata import ExperimentMetadata, write_metadata
         payload = fake(transferred)
         write_metadata(args[-1], ExperimentMetadata('fake', 'fake', 'fake', 'fake', 5, 30, 0, payload, {}))

@@ -65,7 +65,7 @@ def test_worker_exact_import_chain_without_ipython(repository, tmp_path, monkeyp
         "args, _ = parser.parse_known_args()\n"
         "Path(args.save_aged_dir, 'synthetic_30.png').write_text('test-only, not a face')\n")
     before = {p.relative_to(repository): p.read_bytes() for p in repository.rglob('*.py')}
-    request = dict(source_image='synthetic.jpg', source_age=2, target_age=30,
+    request = dict(source_image='synthetic.jpg', fading_source_image='synthetic.jpg', source_age=2, target_age=30,
                    output_path=str(tmp_path / 'output.png'),
                    config=dict(external_repository=str(repository), gender='male', checkpoint='unused'))
     code = '''

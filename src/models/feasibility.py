@@ -11,7 +11,7 @@ import traceback
 from src.utils.metadata import ExperimentMetadata, write_metadata, read_metadata
 from src.utils.resume import is_completed
 from .sam_runtime import check_sam_runtime
-from .fading_runtime import batch_utility_source
+from .fading_runtime import batch_utility_source, normalize_source
 
 
 @dataclass
@@ -29,7 +29,12 @@ class SmokeMetadata(ExperimentMetadata):
 
 
 @dataclass
-class FadingFailureMetadata(SmokeMetadata):
+class FadingSmokeMetadata(SmokeMetadata):
+    source_preprocessing: dict | None = None
+
+
+@dataclass
+class FadingFailureMetadata(FadingSmokeMetadata):
     error_traceback: str | None = None
 
 
@@ -145,6 +150,11 @@ def subprocess_backend(request):
     with tempfile.TemporaryDirectory(prefix='smoke-', dir=cache) as temporary:
         request_path = Path(temporary) / 'request.json'
         result_path = Path(temporary) / 'result.json'
+        if request['model'] == 'fading':
+            request = dict(request)
+            rgb_path = Path(temporary) / 'source_rgb.png'
+            request['source_preprocessing'] = normalize_source(request['source_image'], rgb_path)
+            request['fading_source_image'] = str(rgb_path)
         request_path.write_text(json.dumps(request), encoding='utf-8')
         env = worker_environment(request['model'], config)
         completed = subprocess.run([config['python'], str(PROJECT_ROOT / 'scripts/model_worker.py'),
@@ -166,7 +176,8 @@ class Adapter:
         source, output = Path(source_image).resolve(), Path(output_path).absolute()
         metadata_path = output.with_suffix('.json')
         config = dict(self.config)
-        record = SmokeMetadata('task-04a-smoke', config['method'], config['name'], str(source),
+        metadata_class = FadingSmokeMetadata if self.model == 'fading' else SmokeMetadata
+        record = metadata_class('task-04a-smoke', config['method'], config['name'], str(source),
                                     source_age, target_age, config.get('seed', 0), config,
                                     {'requested': config.get('device')})
         # Refuse unsafe destinations before writing failure metadata.
@@ -229,6 +240,8 @@ class Adapter:
                 record.model_version = result.get('revision')
                 record.runtime = result.get('wall_clock_inference_seconds')
                 record.device.update(result.get('device', {}))
+                if self.model == 'fading':
+                    record.source_preprocessing = result.get('source_preprocessing')
                 for key in ('output_resolution', 'wall_clock_inference_seconds', 'peak_cuda_memory_bytes',
                             'peak_cuda_reserved_bytes', 'upstream', 'versions', 'measurement_scope', 'test_only'):
                     if key in result:

@@ -77,7 +77,8 @@ def settings(tmp_path):
 
 def test_trace_survives_worker_parent_and_atomic_drive_metadata(tmp_path, upstream, monkeypatch, capfd):
     source, output = tmp_path / 'source.jpg', tmp_path / 'output.png'
-    source.write_text('synthetic source path, not FG-NET')
+    from PIL import Image
+    Image.new('L', (3, 2), 42).save(source, format='PNG')
     config = settings(tmp_path)
     monkeypatch.setenv('TEST_DIAGNOSTIC_SECRET', 'sensitive-test-value-not-for-output')
     parent = dict(os.environ)
